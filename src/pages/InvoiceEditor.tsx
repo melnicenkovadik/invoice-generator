@@ -2,7 +2,7 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useStore, createPresetByKey, createDefaultTemplate } from '../store/useStore';
 import type { PresetKey } from '../store/useStore';
 import { useState, useCallback, useRef } from 'react';
-import { ArrowLeft, Plus, Download, Mail, X, Save, Pen } from 'lucide-react';
+import { ArrowLeft, Plus, Mail, X, Save, Pen } from 'lucide-react';
 import { InvoicePDF } from '../components/InvoicePDF';
 import { SignaturePad } from '../components/SignaturePad';
 import { pdf } from '@react-pdf/renderer';

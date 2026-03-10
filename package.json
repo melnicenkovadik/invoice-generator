@@ -6,11 +6,16 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "build:server": "esbuild server/index.ts --bundle --platform=node --format=esm --outfile=server.js --packages=external",
+    "build:all": "npm run build && npm run build:server",
+    "start": "node server.js",
     "lint": "eslint .",
     "preview": "vite preview"
   },
   "dependencies": {
+    "@hono/node-server": "^1.14.3",
     "@react-pdf/renderer": "^4.3.2",
+    "hono": "^4.8.3",
     "lucide-react": "^0.577.0",
     "react": "^19.2.0",
     "react-datepicker": "^9.1.0",
@@ -33,6 +38,7 @@
     "tailwindcss": "^4.2.1",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.48.0",
+    "esbuild": "^0.25.4",
     "vite": "^7.3.1"
   },
   "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"

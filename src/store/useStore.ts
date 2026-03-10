@@ -1,8 +1,61 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { persist, createJSONStorage, type StateStorage } from 'zustand/middleware';
 import type { InvoiceTemplate, AppSettings, LineItem, Folder } from '../types';
 
 const generateId = () => crypto.randomUUID();
+
+// --- API storage adapter (NAS) with debounce ---
+
+let saveTimer: ReturnType<typeof setTimeout> | undefined;
+
+const apiStorage: StateStorage = {
+  getItem: async () => {
+    try {
+      const res = await fetch('/api/data');
+      if (!res.ok) return null;
+      const text = await res.text();
+      return text === 'null' ? null : text;
+    } catch {
+      // Fallback to localStorage if API unavailable (local dev without server)
+      return localStorage.getItem('invoice-generator-storage-v4');
+    }
+  },
+  setItem: async (_name: string, value: string) => {
+    // Always save to localStorage as immediate cache
+    localStorage.setItem('invoice-generator-storage-v4', value);
+    // Debounced save to API
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(async () => {
+      try {
+        await fetch('/api/data', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: value,
+        });
+      } catch {
+        // API unavailable — data is safe in localStorage
+      }
+    }, 500);
+  },
+  removeItem: async () => {
+    localStorage.removeItem('invoice-generator-storage-v4');
+    try {
+      await fetch('/api/data', { method: 'PUT', body: 'null', headers: { 'Content-Type': 'application/json' } });
+    } catch { /* ignore */ }
+  },
+};
+
+// Save pending data before page unload
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', () => {
+    const pending = localStorage.getItem('invoice-generator-storage-v4');
+    if (pending) {
+      navigator.sendBeacon('/api/data', new Blob([pending], { type: 'application/json' }));
+    }
+  });
+}
+
+// --- Preset templates ---
 
 export function createDefaultTemplate(name: string): InvoiceTemplate {
   return {
@@ -137,6 +190,8 @@ export function createPresetByKey(key: PresetKey): InvoiceTemplate {
   if (key === 'civitta') return createPresetCivitta();
   return createPresetRndpoint();
 }
+
+// --- Store ---
 
 interface InvoiceStore {
   templates: InvoiceTemplate[];
@@ -332,6 +387,7 @@ export const useStore = create<InvoiceStore>()(
     }),
     {
       name: 'invoice-generator-storage-v4',
+      storage: createJSONStorage(() => apiStorage),
       merge: (persisted: unknown, current) => {
         const p = persisted as Partial<InvoiceStore>;
         const templates = (p.templates ?? []).map(t => ({

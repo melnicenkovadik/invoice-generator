@@ -14,9 +14,15 @@ export function SettingsPage() {
     'w-full px-3 py-2 rounded-lg border border-border bg-surface-secondary text-sm ' +
     'focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 transition-colors';
 
-  const handleExport = () => {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) { alert('Nothing to export'); return; }
+  const handleExport = async () => {
+    let raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) {
+      try {
+        const res = await fetch('/api/data');
+        if (res.ok) raw = await res.text();
+      } catch { /* ignore */ }
+    }
+    if (!raw || raw === 'null') { alert('Nothing to export'); return; }
     const blob = new Blob([raw], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -30,7 +36,7 @@ export function SettingsPage() {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = () => {
+    reader.onload = async () => {
       try {
         const text = reader.result as string;
         const parsed = JSON.parse(text);
@@ -39,6 +45,9 @@ export function SettingsPage() {
           return;
         }
         localStorage.setItem(STORAGE_KEY, text);
+        try {
+          await fetch('/api/data', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: text });
+        } catch { /* API unavailable */ }
         window.location.reload();
       } catch {
         alert('Failed to parse backup file.');

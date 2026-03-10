@@ -5,7 +5,7 @@ import type { PresetKey } from '../store/useStore';
 import { useNavigate } from 'react-router-dom';
 import {
   FileText, Copy, Trash2, Plus, Clock, Zap, X, ArrowRight,
-  FolderPlus, Folder, FolderOpen, Pencil, Check, ChevronRight, MoveRight,
+  FolderPlus, Folder, FolderOpen, Pencil, Check, MoveRight,
 } from 'lucide-react';
 
 function PresetModal({ onClose, onSelect }: { onClose: () => void; onSelect: (key: PresetKey) => void }) {
@@ -127,7 +127,6 @@ function MoveToFolderModal({
 export function Dashboard() {
   const templates = useStore((s) => s.templates);
   const folders = useStore((s) => s.folders);
-  const addTemplate = useStore((s) => s.addTemplate);
   const deleteTemplate = useStore((s) => s.deleteTemplate);
   const duplicateTemplate = useStore((s) => s.duplicateTemplate);
   const addFolder = useStore((s) => s.addFolder);
