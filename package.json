@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "build:server": "esbuild server/index.ts --bundle --platform=node --format=esm --outfile=server.js --packages=external",
+    "build:server": "esbuild server/index.ts --bundle --platform=node --format=esm --outfile=server.js --external:node:*",
     "build:all": "npm run build && npm run build:server",
     "start": "node server.js",
     "lint": "eslint .",
