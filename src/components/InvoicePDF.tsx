@@ -1,246 +1,308 @@
-import { Document, Page, Text, View, StyleSheet } from '@react-pdf/renderer';
+import { Document, Page, Text, View, StyleSheet, Image } from '@react-pdf/renderer';
 import type { InvoiceTemplate } from '../types';
 import { calculateTotal, formatCurrency, numberToWords } from '../utils/numberToWords';
 
+const c = {
+  black: '#1c1917',
+  gray: '#57534e',
+  lightGray: '#78716c',
+  border: '#e7e5e4',
+  bg: '#fafaf9',
+};
+
 const styles = StyleSheet.create({
   page: {
-    padding: 40,
+    padding: 48,
     fontSize: 9,
     fontFamily: 'Helvetica',
-    color: '#1c1917',
+    color: c.black,
     lineHeight: 1.5,
+    backgroundColor: '#ffffff',
   },
+
+  // Header
   header: {
-    textAlign: 'center',
-    marginBottom: 6,
+    marginBottom: 28,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: c.border,
   },
-  title: {
+  invoiceTitle: {
     fontSize: 14,
     fontFamily: 'Helvetica-Bold',
-    marginBottom: 2,
+    color: c.black,
+    marginBottom: 12,
   },
-  subtitle: {
+  contractRef: {
     fontSize: 9,
-    color: '#57534e',
-    marginBottom: 20,
+    color: c.gray,
+    marginTop: 0,
   },
+
+  // Two columns
   twoCol: {
     flexDirection: 'row',
-    gap: 30,
-    marginBottom: 16,
+    gap: 24,
+    marginBottom: 24,
   },
-  col: {
-    flex: 1,
-  },
-  sectionTitle: {
-    fontSize: 10,
+  col: { flex: 1 },
+  colLabel: {
+    fontSize: 7,
     fontFamily: 'Helvetica-Bold',
+    color: c.lightGray,
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    marginBottom: 8,
+  },
+  colText: {
+    fontSize: 8.5,
+    color: c.black,
+    lineHeight: 1.6,
+  },
+  subLabel: {
+    fontSize: 7,
+    fontFamily: 'Helvetica-Bold',
+    color: c.lightGray,
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    marginTop: 12,
     marginBottom: 6,
-    paddingBottom: 3,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e7e5e4',
+    paddingTop: 8,
+    borderTopWidth: 0.5,
+    borderTopColor: c.border,
   },
-  row: {
-    flexDirection: 'row',
-    marginBottom: 2,
-  },
-  label: {
-    width: 100,
-    color: '#78716c',
-    fontSize: 8,
-  },
-  value: {
-    flex: 1,
-    fontSize: 9,
-  },
-  table: {
-    marginTop: 16,
-    marginBottom: 16,
-  },
+
+  // Items table
+  table: { marginBottom: 20 },
   tableHeader: {
     flexDirection: 'row',
-    backgroundColor: '#f5f5f4',
-    paddingVertical: 6,
-    paddingHorizontal: 8,
+    paddingVertical: 7,
+    paddingHorizontal: 10,
+    backgroundColor: c.bg,
+    borderTopWidth: 1,
+    borderTopColor: c.border,
     borderBottomWidth: 1,
-    borderBottomColor: '#e7e5e4',
+    borderBottomColor: c.border,
   },
   tableHeaderCell: {
+    fontSize: 7.5,
     fontFamily: 'Helvetica-Bold',
-    fontSize: 8,
-    color: '#57534e',
+    color: c.lightGray,
+    letterSpacing: 0.5,
   },
   tableRow: {
     flexDirection: 'row',
-    paddingVertical: 6,
-    paddingHorizontal: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
     borderBottomWidth: 0.5,
-    borderBottomColor: '#e7e5e4',
+    borderBottomColor: c.border,
   },
-  colNo: { width: 30 },
+  colNo: { width: 24, flexShrink: 0 },
   colDesc: { flex: 1 },
-  colPrice: { width: 100, textAlign: 'right' },
-  totalSection: {
-    marginTop: 12,
-    alignItems: 'flex-end',
+  colUnitCost: { width: 70, textAlign: 'right' },
+  colQty: { width: 50, textAlign: 'right' },
+  colAmt: { width: 70, textAlign: 'right' },
+
+  // Totals
+  totalsBlock: {
+    marginTop: 4,
+    marginBottom: 8,
   },
-  totalRow: {
+  totalLine: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
-    gap: 20,
     paddingVertical: 4,
   },
   totalLabel: {
-    fontFamily: 'Helvetica-Bold',
     fontSize: 10,
+    fontFamily: 'Helvetica-Bold',
+    color: c.black,
   },
   totalValue: {
-    fontFamily: 'Helvetica-Bold',
     fontSize: 10,
+    fontFamily: 'Helvetica-Bold',
+    color: c.black,
     width: 120,
     textAlign: 'right',
   },
   totalWords: {
-    marginTop: 4,
-    fontSize: 9,
+    fontSize: 8,
+    color: c.gray,
     fontFamily: 'Helvetica-Bold',
-    textAlign: 'right',
+    marginTop: 4,
   },
+
+  // Notes
+  notesBlock: {
+    marginTop: 16,
+    marginBottom: 16,
+    paddingTop: 12,
+    borderTopWidth: 0.5,
+    borderTopColor: c.border,
+  },
+  notesLabel: {
+    fontSize: 7,
+    fontFamily: 'Helvetica-Bold',
+    color: c.lightGray,
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    marginBottom: 4,
+  },
+  notesText: {
+    fontSize: 8,
+    color: c.gray,
+    lineHeight: 1.5,
+  },
+
+  // Signature
   signature: {
     marginTop: 40,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
   },
-  signLine: {
-    width: 200,
-  },
-  signLabel: {
-    fontSize: 8,
-    color: '#78716c',
-    marginBottom: 4,
+  signBlock: { width: 200 },
+  signRole: {
+    fontSize: 7.5,
+    color: c.lightGray,
+    marginBottom: 3,
   },
   signName: {
     fontSize: 9,
     fontFamily: 'Helvetica-Bold',
-    marginBottom: 16,
+    marginBottom: 14,
   },
-  dateLine: {
-    fontSize: 9,
-    marginTop: 4,
+  signDateLine: {
+    fontSize: 8.5,
+    color: c.gray,
   },
 });
 
-function getField(template: InvoiceTemplate, key: string): string {
-  return template.fields.find((f) => f.key === key)?.value || '';
-}
-
-function FieldRow({ label, value }: { label: string; value: string }) {
-  if (!value) return null;
-  return (
-    <View style={styles.row}>
-      <Text style={styles.label}>{label}</Text>
-      <Text style={styles.value}>{value}</Text>
-    </View>
-  );
-}
-
 export function InvoicePDF({ template }: { template: InvoiceTemplate }) {
   const total = calculateTotal(template.lineItems.map((li) => li.price));
-  const invoiceNum = getField(template, 'invoiceNumber');
-  const contractRef = getField(template, 'contractRef');
-  const contractDate = getField(template, 'contractDate');
 
-  const contractorFields = template.fields.filter((f) => f.group === 'contractor');
-  const bankFields = template.fields.filter((f) => f.group === 'bank');
-  const customerFields = template.fields.filter((f) => f.group === 'customer');
-  const customFields = template.fields.filter((f) => f.group === 'custom' && f.value);
+  const dateDisplay = template.invoiceDate && template.dueDate
+    ? `from ${template.invoiceDate} to ${template.dueDate}`
+    : template.invoiceDate
+      ? `from ${template.invoiceDate}`
+      : template.dueDate
+        ? `due ${template.dueDate}`
+        : '';
+
+  const wordsText = template.totalInWords || numberToWords(total, template.currency);
 
   return (
     <Document>
       <Page size="A4" style={styles.page}>
+
+        {/* Header */}
         <View style={styles.header}>
-          <Text style={styles.title}>INVOICE {invoiceNum ? `№ ${invoiceNum}` : ''}</Text>
-          {contractRef && (
-            <Text style={styles.subtitle}>
-              to Contract No. {contractRef}
-              {contractDate ? ` dated ${contractDate}` : ''}
+          <Text style={styles.invoiceTitle}>
+            INVOICE{template.invoiceNumber ? ` № ${template.invoiceNumber}` : ''}
+          </Text>
+          {template.contractRef ? (
+            <Text style={styles.contractRef}>
+              to Contract No. {template.contractRef}{dateDisplay ? ` ${dateDisplay}` : ''}
             </Text>
-          )}
+          ) : dateDisplay ? (
+            <Text style={styles.contractRef}>
+              {dateDisplay.charAt(0).toUpperCase() + dateDisplay.slice(1)}
+            </Text>
+          ) : null}
         </View>
 
+        {/* Contractor / Customer */}
         <View style={styles.twoCol}>
           <View style={styles.col}>
-            <Text style={styles.sectionTitle}>Contractor</Text>
-            {contractorFields.map((f) => (
-              <FieldRow key={f.id} label={f.label} value={f.value} />
-            ))}
-
-            <Text style={{ ...styles.sectionTitle, marginTop: 12 }}>Bank Details</Text>
-            {bankFields.map((f) => (
-              <FieldRow key={f.id} label={f.label} value={f.value} />
-            ))}
-          </View>
-
-          <View style={styles.col}>
-            <Text style={styles.sectionTitle}>Customer</Text>
-            {customerFields.map((f) => (
-              <FieldRow key={f.id} label={f.label} value={f.value} />
-            ))}
-
-            {customFields.length > 0 && (
+            {template.companyDetails && (
               <>
-                <Text style={{ ...styles.sectionTitle, marginTop: 12 }}>Additional</Text>
-                {customFields.map((f) => (
-                  <FieldRow key={f.id} label={f.label} value={f.value} />
-                ))}
+                <Text style={styles.colLabel}>Contractor</Text>
+                <Text style={styles.colText}>{template.companyDetails}</Text>
+              </>
+            )}
+            {template.bankDetails && (
+              <>
+                <Text style={styles.subLabel}>Bank details</Text>
+                <Text style={styles.colText}>{template.bankDetails}</Text>
+              </>
+            )}
+          </View>
+          <View style={styles.col}>
+            {template.billTo && (
+              <>
+                <Text style={styles.colLabel}>Customer</Text>
+                <Text style={styles.colText}>{template.billTo}</Text>
               </>
             )}
           </View>
         </View>
 
+        {/* Items table */}
         <View style={styles.table}>
           <View style={styles.tableHeader}>
             <Text style={{ ...styles.tableHeaderCell, ...styles.colNo }}>№</Text>
             <Text style={{ ...styles.tableHeaderCell, ...styles.colDesc }}>Description</Text>
-            <Text style={{ ...styles.tableHeaderCell, ...styles.colPrice }}>
-              Price, {template.currency}
+            <Text style={{ ...styles.tableHeaderCell, ...styles.colUnitCost }}>Unit cost</Text>
+            <Text style={{ ...styles.tableHeaderCell, ...styles.colQty }}>Qty</Text>
+            <Text style={{ ...styles.tableHeaderCell, ...styles.colAmt }}>
+              Amount, {template.currency}
             </Text>
           </View>
-          {template.lineItems.map((item) => (
-            <View key={item.id} style={styles.tableRow}>
-              <Text style={styles.colNo}>{item.index}</Text>
-              <Text style={styles.colDesc}>{item.description}</Text>
-              <Text style={styles.colPrice}>
-                {item.price ? formatCurrency(parseFloat(item.price) || 0) : ''}
-              </Text>
-            </View>
-          ))}
+
+          {template.lineItems.map((item) => {
+            const amt = (parseFloat(item.unitCost) || 0) * (parseFloat(item.quantity) || 0);
+            return (
+              <View key={item.id} style={styles.tableRow}>
+                <Text style={{ ...styles.colNo, fontSize: 8.5, color: c.lightGray }}>{item.index}</Text>
+                <Text style={{ ...styles.colDesc, fontSize: 8.5 }}>{item.description}</Text>
+                <Text style={{ ...styles.colUnitCost, fontSize: 8.5 }}>
+                  {item.unitCost ? formatCurrency(parseFloat(item.unitCost) || 0) : ''}
+                </Text>
+                <Text style={{ ...styles.colQty, fontSize: 8.5 }}>
+                  {item.quantity || ''}
+                </Text>
+                <Text style={{ ...styles.colAmt, fontSize: 8.5 }}>
+                  {amt ? formatCurrency(amt) : ''}
+                </Text>
+              </View>
+            );
+          })}
         </View>
 
-        <View style={styles.totalSection}>
-          <View style={styles.totalRow}>
-            <Text style={styles.totalLabel}>TOTAL:</Text>
-            <Text style={styles.totalValue}>
-              {formatCurrency(total)} {template.currency}
-            </Text>
+        {/* Totals */}
+        <View style={styles.totalsBlock}>
+          <View style={styles.totalLine}>
+            <Text style={styles.totalLabel}>TOTAL: </Text>
+            <Text style={styles.totalValue}>{formatCurrency(total)} {template.currency}</Text>
           </View>
           <Text style={styles.totalWords}>
-            TOTAL TO PAY:{' '}
-            {template.totalInWords || numberToWords(total, template.currency)}
+            TOTAL TO PAY: {wordsText}
           </Text>
         </View>
 
+        {/* Notes */}
+        {template.notes ? (
+          <View style={styles.notesBlock}>
+            <Text style={styles.notesLabel}>Notes</Text>
+            <Text style={styles.notesText}>{template.notes}</Text>
+          </View>
+        ) : null}
+
+        {/* Signature */}
         <View style={styles.signature}>
-          <View style={styles.signLine}>
+          <View style={styles.signBlock}>
             {template.signatory && (
               <>
-                <Text style={styles.signLabel}>Private Entrepreneur</Text>
+                <Text style={styles.signRole}>Private Entrepreneur</Text>
                 <Text style={styles.signName}>{template.signatory}</Text>
               </>
             )}
-            <Text style={styles.dateLine}>Date: ___ / ___ / {new Date().getFullYear()}</Text>
+            {template.signatureImage && (
+              <Image src={template.signatureImage} style={{ width: 150, height: 50, marginBottom: 8 }} />
+            )}
+            {template.invoiceDate && (
+              <Text style={styles.signDateLine}>{template.invoiceDate}</Text>
+            )}
           </View>
         </View>
+
       </Page>
     </Document>
   );

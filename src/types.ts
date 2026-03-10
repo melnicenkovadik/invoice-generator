@@ -1,17 +1,9 @@
-export interface InvoiceField {
-  id: string;
-  key: string;
-  label: string;
-  value: string;
-  type: 'text' | 'textarea' | 'number';
-  group: 'contractor' | 'bank' | 'customer' | 'items' | 'meta' | 'custom';
-  isCustom?: boolean;
-}
-
 export interface LineItem {
   id: string;
   index: number;
   description: string;
+  unitCost: string;
+  quantity: string;
   price: string;
 }
 
@@ -20,21 +12,32 @@ export interface InvoiceTemplate {
   name: string;
   createdAt: string;
   updatedAt: string;
-  fields: InvoiceField[];
+  invoiceNumber: string;
+  contractRef: string;
+  invoiceDate: string;
+  dueDate: string;
+  currency: string;
+  companyDetails: string;
+  billTo: string;
   lineItems: LineItem[];
+  notes: string;
+  bankDetails: string;
   totalInWords: string;
   signatory: string;
-  currency: string;
+  signatureImage?: string;
+  folderId?: string;
+}
+
+export interface Folder {
+  id: string;
+  name: string;
+  createdAt: string;
 }
 
 export interface EmailSettings {
+  resendApiKey: string;
   senderEmail: string;
   senderName: string;
-  smtpHost: string;
-  smtpPort: number;
-  smtpUser: string;
-  smtpPassword: string;
-  useTLS: boolean;
 }
 
 export interface AppSettings {

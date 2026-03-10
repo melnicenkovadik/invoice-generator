@@ -1,10 +1,52 @@
+import { useRef } from 'react';
 import { useStore } from '../store/useStore';
-import { Mail, Shield } from 'lucide-react';
+import { Mail, Download, Upload } from 'lucide-react';
+
+const STORAGE_KEY = 'invoice-generator-storage-v4';
 
 export function SettingsPage() {
   const settings = useStore((s) => s.settings);
   const updateSettings = useStore((s) => s.updateSettings);
   const updateEmailSettings = useStore((s) => s.updateEmailSettings);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const inputCls =
+    'w-full px-3 py-2 rounded-lg border border-border bg-surface-secondary text-sm ' +
+    'focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 transition-colors';
+
+  const handleExport = () => {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) { alert('Nothing to export'); return; }
+    const blob = new Blob([raw], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `invoice-generator-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const text = reader.result as string;
+        const parsed = JSON.parse(text);
+        if (!parsed.state || !parsed.state.templates) {
+          alert('Invalid backup file format.');
+          return;
+        }
+        localStorage.setItem(STORAGE_KEY, text);
+        window.location.reload();
+      } catch {
+        alert('Failed to parse backup file.');
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
 
   return (
     <div className="max-w-2xl">
@@ -17,94 +59,56 @@ export function SettingsPage() {
           </div>
           <div>
             <h2 className="font-medium text-sm">Email Configuration</h2>
-            <p className="text-xs text-text-tertiary">Configure SMTP to send invoices via email</p>
+            <p className="text-xs text-text-tertiary">Send invoices via Resend</p>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="space-y-4">
           <div>
-            <label className="block text-xs font-medium text-text-secondary mb-1.5">Sender Name</label>
-            <input
-              type="text"
-              value={settings.email.senderName}
-              onChange={(e) => updateEmailSettings({ senderName: e.target.value })}
-              placeholder="John Doe"
-              className="w-full px-3 py-2 rounded-lg border border-border bg-surface-secondary text-sm
-                focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 transition-colors"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-text-secondary mb-1.5">Sender Email</label>
-            <input
-              type="email"
-              value={settings.email.senderEmail}
-              onChange={(e) => updateEmailSettings({ senderEmail: e.target.value })}
-              placeholder="john@example.com"
-              className="w-full px-3 py-2 rounded-lg border border-border bg-surface-secondary text-sm
-                focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 transition-colors"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-text-secondary mb-1.5">SMTP Host</label>
-            <input
-              type="text"
-              value={settings.email.smtpHost}
-              onChange={(e) => updateEmailSettings({ smtpHost: e.target.value })}
-              placeholder="smtp.gmail.com"
-              className="w-full px-3 py-2 rounded-lg border border-border bg-surface-secondary text-sm
-                focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 transition-colors"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-text-secondary mb-1.5">SMTP Port</label>
-            <input
-              type="number"
-              value={settings.email.smtpPort}
-              onChange={(e) => updateEmailSettings({ smtpPort: parseInt(e.target.value) || 587 })}
-              className="w-full px-3 py-2 rounded-lg border border-border bg-surface-secondary text-sm
-                focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 transition-colors"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-text-secondary mb-1.5">SMTP Username</label>
-            <input
-              type="text"
-              value={settings.email.smtpUser}
-              onChange={(e) => updateEmailSettings({ smtpUser: e.target.value })}
-              placeholder="your-email@gmail.com"
-              className="w-full px-3 py-2 rounded-lg border border-border bg-surface-secondary text-sm
-                focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 transition-colors"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-text-secondary mb-1.5">SMTP Password</label>
+            <label className="block text-xs font-medium text-text-secondary mb-1.5">Resend API Key</label>
             <input
               type="password"
-              value={settings.email.smtpPassword}
-              onChange={(e) => updateEmailSettings({ smtpPassword: e.target.value })}
-              placeholder="App password"
-              className="w-full px-3 py-2 rounded-lg border border-border bg-surface-secondary text-sm
-                focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 transition-colors"
+              value={settings.email.resendApiKey}
+              onChange={(e) => updateEmailSettings({ resendApiKey: e.target.value })}
+              placeholder="re_xxxxxxxxx"
+              className={inputCls}
             />
+            <p className="text-xs text-text-tertiary mt-1.5">
+              Get your API key at{' '}
+              <a href="https://resend.com/api-keys" target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">
+                resend.com/api-keys
+              </a>
+            </p>
           </div>
-        </div>
-
-        <div className="mt-4 flex items-center gap-2">
-          <input
-            type="checkbox"
-            id="useTLS"
-            checked={settings.email.useTLS}
-            onChange={(e) => updateEmailSettings({ useTLS: e.target.checked })}
-            className="rounded accent-accent"
-          />
-          <label htmlFor="useTLS" className="text-sm text-text-secondary flex items-center gap-1.5">
-            <Shield size={14} />
-            Use TLS encryption
-          </label>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-medium text-text-secondary mb-1.5">Sender Name</label>
+              <input
+                type="text"
+                value={settings.email.senderName}
+                onChange={(e) => updateEmailSettings({ senderName: e.target.value })}
+                placeholder="John Doe"
+                className={inputCls}
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-text-secondary mb-1.5">Sender Email</label>
+              <input
+                type="email"
+                value={settings.email.senderEmail}
+                onChange={(e) => updateEmailSettings({ senderEmail: e.target.value })}
+                placeholder="invoices@yourdomain.com"
+                className={inputCls}
+              />
+              <p className="text-xs text-text-tertiary mt-1.5">
+                Must be from a domain verified in Resend, or use onboarding@resend.dev for testing
+              </p>
+            </div>
+          </div>
         </div>
       </section>
 
-      <section className="bg-surface rounded-xl border border-border p-6">
+      <section className="bg-surface rounded-xl border border-border p-6 mb-6">
         <h2 className="font-medium text-sm mb-4">General</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
@@ -133,6 +137,40 @@ export function SettingsPage() {
               <option value="PLN">PLN - Polish Zloty</option>
             </select>
           </div>
+        </div>
+      </section>
+
+      <section className="bg-surface rounded-xl border border-border p-6">
+        <h2 className="font-medium text-sm mb-1">Data</h2>
+        <p className="text-xs text-text-tertiary mb-4">
+          Export all invoices, templates, signatures, folders, and settings as a single JSON file.
+        </p>
+        <div className="flex gap-3">
+          <button
+            onClick={handleExport}
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium
+              border border-border text-text-secondary hover:text-text-primary hover:bg-neutral-50
+              transition-colors cursor-pointer bg-transparent"
+          >
+            <Download size={15} />
+            Export backup
+          </button>
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium
+              border border-border text-text-secondary hover:text-text-primary hover:bg-neutral-50
+              transition-colors cursor-pointer bg-transparent"
+          >
+            <Upload size={15} />
+            Import backup
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".json"
+            onChange={handleImport}
+            className="hidden"
+          />
         </div>
       </section>
     </div>

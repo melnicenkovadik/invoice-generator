@@ -1,52 +1,150 @@
-import { useParams, useNavigate } from 'react-router-dom';
-import { useStore } from '../store/useStore';
-import { useState } from 'react';
-import {
-  ArrowLeft,
-  Plus,
-  Trash2,
-  Download,
-  Mail,
-  X,
-  ChevronDown,
-  ChevronRight,
-} from 'lucide-react';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import { useStore, createPresetByKey, createDefaultTemplate } from '../store/useStore';
+import type { PresetKey } from '../store/useStore';
+import { useState, useCallback, useRef } from 'react';
+import { ArrowLeft, Plus, Download, Mail, X, Save, Pen } from 'lucide-react';
 import { InvoicePDF } from '../components/InvoicePDF';
+import { SignaturePad } from '../components/SignaturePad';
 import { pdf } from '@react-pdf/renderer';
 import { calculateTotal, formatCurrency, numberToWords } from '../utils/numberToWords';
-import type { InvoiceField } from '../types';
+import type { InvoiceTemplate, LineItem } from '../types';
+import DatePicker from 'react-datepicker';
+import 'react-datepicker/dist/react-datepicker.css';
 
-const GROUP_LABELS: Record<string, string> = {
-  meta: 'Invoice Details',
-  contractor: 'Contractor',
-  bank: 'Bank Details',
-  customer: 'Customer',
-  custom: 'Custom Fields',
-};
+const inputCls =
+  'w-full px-3 py-2 rounded-lg border border-border bg-surface text-sm ' +
+  'focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 transition-colors';
 
-const GROUP_ORDER = ['meta', 'contractor', 'bank', 'customer', 'custom'];
+const labelCls = 'block text-xs font-medium text-text-tertiary mb-1.5';
+
+const generateId = () => crypto.randomUUID();
+
+function generateInvoiceName(t: InvoiceTemplate): string {
+  const parts: string[] = [];
+  if (t.invoiceNumber) parts.push(`Invoice #${t.invoiceNumber}`);
+  if (t.signatory) parts.push(t.signatory);
+  if (t.invoiceDate) parts.push(t.invoiceDate);
+  return parts.length > 0 ? parts.join(' — ') : 'New Invoice';
+}
+
+function parseDate(str: string): Date | null {
+  if (!str) return null;
+  const d = new Date(str);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function formatDateStr(date: Date | null): string {
+  if (!date) return '';
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
 
 export function InvoiceEditor() {
   const { id } = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const template = useStore((s) => s.templates.find((t) => t.id === id));
+
+  const savedTemplate = useStore((s) => id ? s.templates.find((t) => t.id === id) : undefined);
+  const saveTemplateToStore = useStore((s) => s.saveTemplate);
   const updateTemplate = useStore((s) => s.updateTemplate);
-  const updateField = useStore((s) => s.updateField);
-  const addField = useStore((s) => s.addField);
-  const removeField = useStore((s) => s.removeField);
   const addLineItem = useStore((s) => s.addLineItem);
   const updateLineItem = useStore((s) => s.updateLineItem);
   const removeLineItem = useStore((s) => s.removeLineItem);
   const settings = useStore((s) => s.settings);
+  const savedSignatures = useStore((s) => s.savedSignatures);
+  const saveSignature = useStore((s) => s.saveSignature);
 
-  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
-  const [showAddField, setShowAddField] = useState(false);
-  const [newFieldLabel, setNewFieldLabel] = useState('');
-  const [newFieldType, setNewFieldType] = useState<'text' | 'textarea' | 'number'>('text');
+  const isNew = !id;
+  const presetKey = searchParams.get('preset') as PresetKey | null;
+  const folderFromParam = searchParams.get('folder') || undefined;
+
+  const [draft, setDraft] = useState<InvoiceTemplate | null>(() => {
+    if (!isNew) return null;
+    if (presetKey) {
+      const preset = createPresetByKey(presetKey);
+      return { ...preset, name: generateInvoiceName(preset), folderId: folderFromParam };
+    }
+    const t = createDefaultTemplate('New Invoice');
+    return { ...t, folderId: folderFromParam };
+  });
+
+  const [isSaved, setIsSaved] = useState(!isNew);
+  const nameManuallyEdited = useRef(false);
+  const template = isNew ? draft : savedTemplate;
+
+  const updateDraftTemplate = useCallback((updates: Partial<InvoiceTemplate>) => {
+    setDraft(prev => prev ? { ...prev, ...updates, updatedAt: new Date().toISOString() } : prev);
+  }, []);
+
+  const addDraftLineItem = useCallback(() => {
+    setDraft(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        updatedAt: new Date().toISOString(),
+        lineItems: [
+          ...prev.lineItems,
+          { id: generateId(), index: prev.lineItems.length + 1, description: '', unitCost: '', quantity: '1', price: '' },
+        ],
+      };
+    });
+  }, []);
+
+  const updateDraftLineItem = useCallback((itemId: string, updates: Partial<LineItem>) => {
+    setDraft(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        updatedAt: new Date().toISOString(),
+        lineItems: prev.lineItems.map(li => li.id === itemId ? { ...li, ...updates } : li),
+      };
+    });
+  }, []);
+
+  const removeDraftLineItem = useCallback((itemId: string) => {
+    setDraft(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        updatedAt: new Date().toISOString(),
+        lineItems: prev.lineItems
+          .filter(li => li.id !== itemId)
+          .map((li, i) => ({ ...li, index: i + 1 })),
+      };
+    });
+  }, []);
+
+  const doUpdate = (updates: Partial<InvoiceTemplate>) => {
+    if (!template) return;
+    const autoNameFields = ['signatory', 'invoiceNumber', 'invoiceDate'] as const;
+    const shouldAutoName = !nameManuallyEdited.current &&
+      autoNameFields.some((f) => f in updates);
+    const merged = { ...template, ...updates };
+    const allUpdates = shouldAutoName
+      ? { ...updates, name: generateInvoiceName(merged) }
+      : updates;
+    if (isNew) updateDraftTemplate(allUpdates);
+    else updateTemplate(template.id, allUpdates);
+  };
+
+  const doAddLineItem = () => {
+    if (isNew) addDraftLineItem();
+    else if (template) addLineItem(template.id);
+  };
+
+  const doUpdateLineItem = (itemId: string, updates: Partial<LineItem>) => {
+    if (isNew) updateDraftLineItem(itemId, updates);
+    else if (template) updateLineItem(template.id, itemId, updates);
+  };
+
+  const doRemoveLineItem = (itemId: string) => {
+    if (isNew) removeDraftLineItem(itemId);
+    else if (template) removeLineItem(template.id, itemId);
+  };
+
   const [showEmailModal, setShowEmailModal] = useState(false);
   const [emailTo, setEmailTo] = useState('');
-  const [emailSubject, setEmailSubject] = useState('');
   const [emailSending, setEmailSending] = useState(false);
+  const [showSignaturePad, setShowSignaturePad] = useState(false);
 
   if (!template) {
     return (
@@ -64,105 +162,129 @@ export function InvoiceEditor() {
 
   const total = calculateTotal(template.lineItems.map((li) => li.price));
 
-  const toggleGroup = (group: string) => {
-    setCollapsedGroups((prev) => ({ ...prev, [group]: !prev[group] }));
-  };
+  const emailSubject = [
+    template.invoiceNumber ? `Invoice #${template.invoiceNumber}` : 'Invoice',
+    template.signatory,
+    template.invoiceDate,
+  ].filter(Boolean).join(' — ');
 
-  const handleAddField = () => {
-    if (!newFieldLabel.trim()) return;
-    addField(template.id, {
-      key: `custom_${Date.now()}`,
-      label: newFieldLabel.trim(),
-      value: '',
-      type: newFieldType,
-      group: 'custom',
-      isCustom: true,
-    });
-    setNewFieldLabel('');
-    setShowAddField(false);
+  const handleSave = () => {
+    saveTemplateToStore(template);
+    setIsSaved(true);
+    if (isNew) {
+      navigate(`/editor/${template.id}`, { replace: true });
+    }
   };
 
   const handleDownloadPDF = async () => {
+    if (!isSaved || isNew) {
+      saveTemplateToStore(template);
+      setIsSaved(true);
+      if (isNew) {
+        navigate(`/editor/${template.id}`, { replace: true });
+      }
+    }
     const doc = <InvoicePDF template={template} />;
     const blob = await pdf(doc).toBlob();
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `invoice_${template.fields.find((f) => f.key === 'invoiceNumber')?.value || template.id}.pdf`;
+    a.download = [
+      'invoice',
+      template.invoiceNumber,
+      template.signatory,
+    ].filter(Boolean).join('_').replace(/\s+/g, '_') + '.pdf';
     a.click();
     URL.revokeObjectURL(url);
   };
 
   const handleSendEmail = async () => {
-    if (!emailTo || !settings.email.smtpHost) {
-      alert('Please configure email settings first (Settings page)');
+    if (!emailTo) return;
+    if (!settings.email.resendApiKey) {
+      alert('Please configure your Resend API key in Settings first.');
       return;
     }
     setEmailSending(true);
     try {
       const doc = <InvoicePDF template={template} />;
       const blob = await pdf(doc).toBlob();
-      const reader = new FileReader();
-      reader.readAsDataURL(blob);
-      reader.onloadend = () => {
-        const base64 = (reader.result as string).split(',')[1];
-        const mailtoSubject = encodeURIComponent(emailSubject || `Invoice ${template.fields.find((f) => f.key === 'invoiceNumber')?.value || ''}`);
-        const mailtoBody = encodeURIComponent(
-          `Please find the attached invoice.\n\nBest regards,\n${settings.email.senderName || 'Sender'}`
-        );
+      const buffer = await blob.arrayBuffer();
+      const base64 = btoa(
+        new Uint8Array(buffer).reduce((data, byte) => data + String.fromCharCode(byte), '')
+      );
 
-        alert(
-          `Email sending requires a backend server.\n\n` +
-          `To: ${emailTo}\n` +
-          `Subject: ${emailSubject}\n` +
-          `Attachment: invoice.pdf (${(blob.size / 1024).toFixed(1)} KB)\n\n` +
-          `As a workaround, the PDF has been downloaded. You can attach it manually.\n\n` +
-          `Opening mailto link...`
-        );
+      const filename = [
+        'invoice',
+        template.invoiceNumber,
+        template.signatory,
+      ].filter(Boolean).join('_').replace(/\s+/g, '_') + '.pdf';
 
-        window.location.href = `mailto:${emailTo}?subject=${mailtoSubject}&body=${mailtoBody}`;
+      const fromEmail = settings.email.senderEmail || 'onboarding@resend.dev';
+      const fromName = settings.email.senderName || 'Invoice Generator';
 
-        const downloadLink = document.createElement('a');
-        downloadLink.href = `data:application/pdf;base64,${base64}`;
-        downloadLink.download = `invoice_${template.fields.find((f) => f.key === 'invoiceNumber')?.value || template.id}.pdf`;
-        downloadLink.click();
+      const res = await fetch('/api/resend/emails', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${settings.email.resendApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          from: `${fromName} <${fromEmail}>`,
+          to: [emailTo],
+          subject: emailSubject,
+          text: `Please find the attached invoice.\n\nBest regards,\n${fromName}`,
+          attachments: [{ filename, content: base64 }],
+        }),
+      });
 
-        setShowEmailModal(false);
-        setEmailSending(false);
-      };
-    } catch {
-      alert('Failed to generate PDF');
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.message || 'Failed to send email');
+      }
+
+      setShowEmailModal(false);
+    } catch (err) {
+      alert(`Failed to send: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    } finally {
       setEmailSending(false);
     }
   };
 
-  const fieldsByGroup = GROUP_ORDER.reduce<Record<string, InvoiceField[]>>((acc, group) => {
-    const fields = template.fields.filter((f) => f.group === group);
-    if (fields.length > 0) acc[group] = fields;
-    return acc;
-  }, {});
-
   return (
-    <div>
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
+    <div className="max-w-4xl mx-auto">
+      {/* Top bar */}
+      <div className="flex items-center justify-between gap-4 mb-6 min-w-0">
+        <div className="flex items-center gap-2 min-w-0 flex-1">
           <button
             onClick={() => navigate('/')}
             className="p-2 rounded-lg hover:bg-neutral-100 text-text-tertiary hover:text-text-primary
-              transition-colors cursor-pointer bg-transparent border-none"
+              transition-colors cursor-pointer bg-transparent border-none shrink-0"
           >
             <ArrowLeft size={18} />
           </button>
           <input
             type="text"
             value={template.name}
-            onChange={(e) => updateTemplate(template.id, { name: e.target.value })}
+            onChange={(e) => { nameManuallyEdited.current = true; doUpdate({ name: e.target.value }); }}
             className="text-xl font-semibold tracking-tight bg-transparent border-none outline-none
-              focus:ring-0 w-auto"
-            style={{ width: `${Math.max(template.name.length, 10)}ch` }}
+              focus:ring-0 min-w-0 flex-1 truncate"
           />
+          {!isSaved && (
+            <span className="text-xs text-warning bg-warning/10 px-2 py-0.5 rounded-full font-medium shrink-0">
+              Unsaved
+            </span>
+          )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            onClick={handleSave}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium
+              border border-accent text-accent hover:bg-accent/5
+              transition-colors cursor-pointer bg-transparent"
+          >
+            <Save size={15} />
+            Save
+          </button>
           <button
             onClick={() => setShowEmailModal(true)}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium
@@ -172,255 +294,331 @@ export function InvoiceEditor() {
             <Mail size={15} />
             Send
           </button>
-          <button
-            onClick={handleDownloadPDF}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium
-              bg-primary text-text-inverse hover:bg-primary-hover transition-colors cursor-pointer border-none"
-          >
-            <Download size={15} />
-            Download PDF
-          </button>
         </div>
       </div>
 
-      <div className="space-y-4">
-        {Object.entries(fieldsByGroup).map(([group, fields]) => (
-          <section key={group} className="bg-surface rounded-xl border border-border overflow-hidden">
-            <button
-              onClick={() => toggleGroup(group)}
-              className="w-full flex items-center justify-between px-5 py-3.5 bg-transparent border-none
-                cursor-pointer text-left hover:bg-neutral-50/50 transition-colors"
-            >
-              <span className="text-sm font-medium text-text-primary">
-                {GROUP_LABELS[group] || group}
-              </span>
-              {collapsedGroups[group] ? (
-                <ChevronRight size={16} className="text-text-tertiary" />
-              ) : (
-                <ChevronDown size={16} className="text-text-tertiary" />
-              )}
-            </button>
-            {!collapsedGroups[group] && (
-              <div className="px-5 pb-5 grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {fields.map((field) => (
-                  <div key={field.id} className={field.type === 'textarea' ? 'sm:col-span-2' : ''}>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <label className="text-xs font-medium text-text-secondary">{field.label}</label>
-                      {field.isCustom && (
-                        <button
-                          onClick={() => removeField(template.id, field.id)}
-                          className="text-text-tertiary hover:text-danger p-0.5 cursor-pointer bg-transparent border-none"
-                        >
-                          <Trash2 size={12} />
-                        </button>
-                      )}
-                    </div>
-                    {field.type === 'textarea' ? (
-                      <textarea
-                        value={field.value}
-                        onChange={(e) => updateField(template.id, field.id, e.target.value)}
-                        rows={3}
-                        className="w-full px-3 py-2 rounded-lg border border-border bg-surface-secondary text-sm
-                          focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 transition-colors resize-y"
-                      />
-                    ) : (
-                      <input
-                        type={field.type}
-                        value={field.value}
-                        onChange={(e) => updateField(template.id, field.id, e.target.value)}
-                        className="w-full px-3 py-2 rounded-lg border border-border bg-surface-secondary text-sm
-                          focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 transition-colors"
-                      />
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-        ))}
+      {/* Main card */}
+      <div className="bg-surface rounded-2xl border border-border shadow-sm overflow-hidden">
 
-        {/* Line Items */}
-        <section className="bg-surface rounded-xl border border-border p-5">
-          <h3 className="text-sm font-medium mb-4">Line Items</h3>
-          <div className="space-y-3">
-            {template.lineItems.map((item) => (
-              <div key={item.id} className="flex items-start gap-3">
-                <span className="text-xs text-text-tertiary font-mono mt-2.5 w-6 text-right shrink-0">
-                  {item.index}
-                </span>
-                <input
-                  type="text"
-                  value={item.description}
-                  onChange={(e) => updateLineItem(template.id, item.id, { description: e.target.value })}
-                  placeholder="Description"
-                  className="flex-1 px-3 py-2 rounded-lg border border-border bg-surface-secondary text-sm
-                    focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 transition-colors"
-                />
-                <input
-                  type="text"
-                  value={item.price}
-                  onChange={(e) => updateLineItem(template.id, item.id, { price: e.target.value })}
-                  placeholder="0.00"
-                  className="w-32 px-3 py-2 rounded-lg border border-border bg-surface-secondary text-sm text-right
-                    focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 transition-colors"
-                />
-                <button
-                  onClick={() => removeLineItem(template.id, item.id)}
-                  disabled={template.lineItems.length <= 1}
-                  className="p-2 rounded-lg text-text-tertiary hover:text-danger hover:bg-red-50
-                    transition-colors cursor-pointer bg-transparent border-none disabled:opacity-30 disabled:cursor-not-allowed"
-                >
-                  <Trash2 size={14} />
-                </button>
-              </div>
-            ))}
-          </div>
-          <button
-            onClick={() => addLineItem(template.id)}
-            className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium
-              text-accent hover:bg-accent/5 transition-colors cursor-pointer bg-transparent border-none"
-          >
-            <Plus size={14} />
-            Add Item
-          </button>
-        </section>
-
-        {/* Totals */}
-        <section className="bg-surface rounded-xl border border-border p-5">
-          <div className="flex justify-between items-center mb-3">
-            <span className="text-sm font-medium">Total</span>
-            <span className="text-lg font-semibold">
-              {formatCurrency(total)} {template.currency}
-            </span>
-          </div>
-          <div className="mb-4">
-            <label className="block text-xs font-medium text-text-secondary mb-1.5">Total in Words</label>
-            <input
-              type="text"
-              value={template.totalInWords || numberToWords(total, template.currency)}
-              onChange={(e) => updateTemplate(template.id, { totalInWords: e.target.value })}
-              className="w-full px-3 py-2 rounded-lg border border-border bg-surface-secondary text-sm
-                focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 transition-colors"
-            />
-            <button
-              onClick={() => updateTemplate(template.id, { totalInWords: numberToWords(total, template.currency) })}
-              className="mt-1 text-xs text-accent hover:text-accent-hover cursor-pointer bg-transparent border-none"
-            >
-              Auto-generate from total
-            </button>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {/* Invoice number + Purchase order */}
+        <div className="px-6 pt-6 pb-5 border-b border-border">
+          <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-medium text-text-secondary mb-1.5">Signatory</label>
+              <label className={labelCls}>Invoice number</label>
               <input
                 type="text"
-                value={template.signatory}
-                onChange={(e) => updateTemplate(template.id, { signatory: e.target.value })}
-                placeholder="Name of signatory"
-                className="w-full px-3 py-2 rounded-lg border border-border bg-surface-secondary text-sm
-                  focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 transition-colors"
+                value={template.invoiceNumber}
+                onChange={(e) => doUpdate({ invoiceNumber: e.target.value })}
+                placeholder="#001"
+                className={inputCls}
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-text-secondary mb-1.5">Currency</label>
+              <label className={labelCls}>Purchase order</label>
+              <input
+                type="text"
+                value={template.contractRef}
+                onChange={(e) => doUpdate({ contractRef: e.target.value })}
+                placeholder="e.g. SM02"
+                className={inputCls}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Currency + Dates */}
+        <div className="px-6 pt-5 pb-5 border-b border-border">
+          <div className="grid grid-cols-3 gap-4">
+            <div>
+              <label className={labelCls}>Currency</label>
               <select
                 value={template.currency}
-                onChange={(e) => updateTemplate(template.id, { currency: e.target.value })}
-                className="w-full px-3 py-2 rounded-lg border border-border bg-surface-secondary text-sm
-                  focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 transition-colors"
+                onChange={(e) => doUpdate({ currency: e.target.value })}
+                className={inputCls}
               >
-                <option value="USD">USD</option>
-                <option value="EUR">EUR</option>
-                <option value="GBP">GBP</option>
-                <option value="UAH">UAH</option>
-                <option value="PLN">PLN</option>
+                <option value="USD">🇺🇸 USD</option>
+                <option value="EUR">🇪🇺 EUR</option>
+                <option value="GBP">🇬🇧 GBP</option>
+                <option value="UAH">🇺🇦 UAH</option>
+                <option value="PLN">🇵🇱 PLN</option>
               </select>
             </div>
-          </div>
-        </section>
-
-        {/* Add Custom Field */}
-        <section className="bg-surface rounded-xl border border-border p-5">
-          {!showAddField ? (
-            <button
-              onClick={() => setShowAddField(true)}
-              className="inline-flex items-center gap-1.5 text-sm font-medium text-accent
-                hover:text-accent-hover cursor-pointer bg-transparent border-none"
-            >
-              <Plus size={16} />
-              Add Custom Field
-            </button>
-          ) : (
-            <div className="flex items-end gap-3">
-              <div className="flex-1">
-                <label className="block text-xs font-medium text-text-secondary mb-1.5">Field Label</label>
-                <input
-                  type="text"
-                  value={newFieldLabel}
-                  onChange={(e) => setNewFieldLabel(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleAddField()}
-                  placeholder="e.g. Purchase Order"
-                  autoFocus
-                  className="w-full px-3 py-2 rounded-lg border border-border bg-surface-secondary text-sm
-                    focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 transition-colors"
-                />
-              </div>
-              <div className="w-32">
-                <label className="block text-xs font-medium text-text-secondary mb-1.5">Type</label>
-                <select
-                  value={newFieldType}
-                  onChange={(e) => setNewFieldType(e.target.value as 'text' | 'textarea' | 'number')}
-                  className="w-full px-3 py-2 rounded-lg border border-border bg-surface-secondary text-sm
-                    focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 transition-colors"
-                >
-                  <option value="text">Text</option>
-                  <option value="textarea">Textarea</option>
-                  <option value="number">Number</option>
-                </select>
-              </div>
-              <button
-                onClick={handleAddField}
-                className="px-3 py-2 rounded-lg text-sm font-medium bg-accent text-text-inverse
-                  hover:bg-accent-hover transition-colors cursor-pointer border-none"
-              >
-                Add
-              </button>
-              <button
-                onClick={() => { setShowAddField(false); setNewFieldLabel(''); }}
-                className="p-2 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-neutral-100
-                  transition-colors cursor-pointer bg-transparent border-none"
-              >
-                <X size={16} />
-              </button>
+            <div>
+              <label className={labelCls}>Invoice date</label>
+              <DatePicker
+                selected={parseDate(template.invoiceDate)}
+                onChange={(date: Date | null) => doUpdate({ invoiceDate: formatDateStr(date) })}
+                dateFormat="MMM d, yyyy"
+                placeholderText="Select date"
+                className={inputCls}
+              />
             </div>
-          )}
-        </section>
-
-        {/* Remove Standard Fields */}
-        <section className="bg-surface rounded-xl border border-border p-5">
-          <h3 className="text-sm font-medium mb-3">Manage Default Fields</h3>
-          <p className="text-xs text-text-tertiary mb-3">
-            Click the trash icon to remove fields you don't need
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {template.fields
-              .filter((f) => !f.isCustom)
-              .map((field) => (
-                <span
-                  key={field.id}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-neutral-100 text-xs text-text-secondary"
-                >
-                  {field.label}
-                  <button
-                    onClick={() => removeField(template.id, field.id)}
-                    className="text-text-tertiary hover:text-danger cursor-pointer bg-transparent border-none p-0"
-                  >
-                    <X size={12} />
-                  </button>
-                </span>
-              ))}
+            <div>
+              <label className={labelCls}>Due date</label>
+              <DatePicker
+                selected={parseDate(template.dueDate)}
+                onChange={(date: Date | null) => doUpdate({ dueDate: formatDateStr(date) })}
+                dateFormat="MMM d, yyyy"
+                placeholderText="Select date"
+                className={inputCls}
+              />
+            </div>
           </div>
-        </section>
+        </div>
+
+        {/* Company details + Bill to */}
+        <div className="px-6 pt-5 pb-5 border-b border-border">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className={labelCls}>Your company details</label>
+              <textarea
+                value={template.companyDetails}
+                onChange={(e) => doUpdate({ companyDetails: e.target.value })}
+                rows={6}
+                placeholder={"Company name\nTax ID / ITN\nAddress\nEmail"}
+                className={`${inputCls} resize-y`}
+              />
+            </div>
+            <div>
+              <label className={labelCls}>Bill to</label>
+              <textarea
+                value={template.billTo}
+                onChange={(e) => doUpdate({ billTo: e.target.value })}
+                rows={6}
+                placeholder={"Client company name\nCompany number\nAddress\nVAT number"}
+                className={`${inputCls} resize-y`}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Line Items */}
+        <div className="px-6 py-5 border-b border-border bg-surface-secondary">
+          <div className="grid gap-3 mb-2" style={{ gridTemplateColumns: '1fr 120px 80px 120px 32px' }}>
+            <span className="text-xs font-semibold text-text-tertiary uppercase tracking-wider">Item description</span>
+            <span className="text-xs font-semibold text-text-tertiary uppercase tracking-wider text-right">Unit cost</span>
+            <span className="text-xs font-semibold text-text-tertiary uppercase tracking-wider text-right">Quantity</span>
+            <span className="text-xs font-semibold text-text-tertiary uppercase tracking-wider text-right">Amount</span>
+            <span />
+          </div>
+
+          <div className="space-y-2">
+            {template.lineItems.map((item, idx) => {
+              const computedAmount = (parseFloat(item.unitCost) || 0) * (parseFloat(item.quantity) || 0);
+              return (
+                <div key={item.id} className="grid gap-3 items-center" style={{ gridTemplateColumns: '1fr 120px 80px 120px 32px' }}>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-text-tertiary font-mono w-5 text-right shrink-0">{idx + 1}</span>
+                    <input
+                      type="text"
+                      value={item.description}
+                      onChange={(e) => doUpdateLineItem(item.id, { description: e.target.value })}
+                      placeholder="Description of services"
+                      className={inputCls}
+                    />
+                  </div>
+                  <input
+                    type="text"
+                    value={item.unitCost}
+                    onChange={(e) => {
+                      const uc = e.target.value;
+                      const amt = (parseFloat(uc) || 0) * (parseFloat(item.quantity) || 0);
+                      doUpdateLineItem(item.id, { unitCost: uc, price: amt ? amt.toFixed(2) : '' });
+                    }}
+                    placeholder="0.00"
+                    className={`${inputCls} text-right`}
+                  />
+                  <input
+                    type="text"
+                    value={item.quantity}
+                    onChange={(e) => {
+                      const qty = e.target.value;
+                      const amt = (parseFloat(item.unitCost) || 0) * (parseFloat(qty) || 0);
+                      doUpdateLineItem(item.id, { quantity: qty, price: amt ? amt.toFixed(2) : '' });
+                    }}
+                    placeholder="1"
+                    className={`${inputCls} text-right`}
+                  />
+                  <div className={`${inputCls} text-right bg-surface-tertiary border-transparent!`}>
+                    {computedAmount ? formatCurrency(computedAmount) : '0'}
+                  </div>
+                  <div className="flex items-center justify-center">
+                    <button
+                      onClick={() => doRemoveLineItem(item.id)}
+                      disabled={template.lineItems.length <= 1}
+                      className="p-1.5 rounded-md text-text-tertiary hover:text-danger hover:bg-red-50
+                        transition-colors cursor-pointer bg-transparent border-none disabled:opacity-30 disabled:cursor-not-allowed"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <button
+            onClick={doAddLineItem}
+            className="mt-4 inline-flex items-center gap-1.5 text-sm font-medium text-accent
+              hover:text-accent-hover cursor-pointer bg-transparent border-none"
+          >
+            <div className="w-6 h-6 rounded-full bg-accent flex items-center justify-center">
+              <Plus size={14} className="text-white" />
+            </div>
+            Add item
+          </button>
+        </div>
+
+        {/* Bottom: Notes + Bank details / Totals */}
+        <div className="grid grid-cols-2 divide-x divide-border">
+          <div className="px-6 py-5 space-y-4">
+            <div>
+              <label className={labelCls}>Notes / payment terms</label>
+              <textarea
+                rows={3}
+                placeholder="Payment is due within 15 days"
+                className={`${inputCls} resize-y`}
+                value={template.notes}
+                onChange={(e) => doUpdate({ notes: e.target.value })}
+              />
+            </div>
+            <div>
+              <label className={labelCls}>Bank account details</label>
+              <textarea
+                rows={5}
+                placeholder={"IBAN: ...\nBank: ...\nSWIFT: ..."}
+                className={`${inputCls} resize-y`}
+                value={template.bankDetails}
+                onChange={(e) => doUpdate({ bankDetails: e.target.value })}
+              />
+            </div>
+            <div>
+              <label className={labelCls}>Signatory</label>
+              <input
+                type="text"
+                value={template.signatory}
+                onChange={(e) => doUpdate({ signatory: e.target.value })}
+                placeholder="Full name"
+                className={inputCls}
+              />
+            </div>
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className={labelCls + ' mb-0!'}>Signature</label>
+                {!showSignaturePad && !template.signatureImage && (
+                  <button
+                    type="button"
+                    onClick={() => setShowSignaturePad(true)}
+                    className="inline-flex items-center gap-1 text-xs text-accent hover:text-accent-hover
+                      cursor-pointer bg-transparent border-none"
+                  >
+                    <Pen size={12} />
+                    Draw
+                  </button>
+                )}
+              </div>
+              {template.signatureImage && !showSignaturePad ? (
+                <div className="border border-border rounded-lg bg-white p-2 relative group">
+                  <img src={template.signatureImage} alt="Signature" className="h-16 object-contain" />
+                  <div className="absolute top-1 right-1 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button
+                      type="button"
+                      onClick={() => setShowSignaturePad(true)}
+                      className="px-2 py-0.5 rounded text-xs bg-surface border border-border
+                        text-text-secondary hover:text-text-primary cursor-pointer"
+                    >
+                      Redraw
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => doUpdate({ signatureImage: undefined })}
+                      className="px-2 py-0.5 rounded text-xs bg-surface border border-border
+                        text-text-secondary hover:text-danger cursor-pointer"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </div>
+              ) : showSignaturePad ? (
+                <SignaturePad
+                  initialImage={template.signatureImage || (template.signatory ? savedSignatures[template.signatory] : undefined)}
+                  onSave={(dataUrl) => {
+                    doUpdate({ signatureImage: dataUrl });
+                    if (template.signatory) saveSignature(template.signatory, dataUrl);
+                    setShowSignaturePad(false);
+                  }}
+                  onClear={() => doUpdate({ signatureImage: undefined })}
+                />
+              ) : (
+                template.signatory && savedSignatures[template.signatory] ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      doUpdate({ signatureImage: savedSignatures[template.signatory] });
+                    }}
+                    className="text-xs text-accent hover:text-accent-hover cursor-pointer bg-transparent border-none"
+                  >
+                    Use saved signature for {template.signatory}
+                  </button>
+                ) : null
+              )}
+            </div>
+          </div>
+
+          <div className="px-6 py-5">
+            <div className="flex justify-between items-center py-3 border-b border-border">
+              <span className="text-sm text-text-secondary">Subtotal</span>
+              <span className="text-sm font-medium">
+                {formatCurrency(total)} {template.currency}
+              </span>
+            </div>
+            <div className="flex justify-between items-center py-3 border-b border-border">
+              <span className="text-sm text-text-secondary">Tax (0%)</span>
+              <span className="text-sm text-text-tertiary">—</span>
+            </div>
+            <div className="flex justify-between items-center py-4">
+              <span className="text-base font-semibold">Total</span>
+              <span className="text-xl font-bold">
+                {formatCurrency(total)} {template.currency}
+              </span>
+            </div>
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className={labelCls}>Total in words</label>
+                <button
+                  onClick={() => doUpdate({ totalInWords: numberToWords(total, template.currency) })}
+                  className="text-xs text-accent hover:text-accent-hover cursor-pointer bg-transparent border-none"
+                >
+                  Auto-fill
+                </button>
+              </div>
+              <input
+                type="text"
+                value={template.totalInWords || numberToWords(total, template.currency)}
+                onChange={(e) => doUpdate({ totalInWords: e.target.value })}
+                className={inputCls}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* CTA */}
+        <div className="px-6 py-4 bg-surface-secondary border-t border-border flex gap-2">
+          <button
+            onClick={handleSave}
+            className="flex-1 py-3 rounded-xl text-sm font-semibold border-2 border-accent text-accent
+              hover:bg-accent/5 transition-colors cursor-pointer bg-transparent"
+          >
+            Save
+          </button>
+          <button
+            onClick={handleDownloadPDF}
+            className="flex-1 py-3 rounded-xl text-sm font-semibold bg-accent text-text-inverse
+              hover:bg-accent-hover transition-colors cursor-pointer border-none"
+          >
+            Download the invoice
+          </button>
+        </div>
       </div>
 
       {/* Email Modal */}
@@ -438,31 +636,23 @@ export function InvoiceEditor() {
             </div>
             <div className="space-y-3">
               <div>
-                <label className="block text-xs font-medium text-text-secondary mb-1.5">To</label>
+                <label className={labelCls}>To</label>
                 <input
                   type="email"
                   value={emailTo}
                   onChange={(e) => setEmailTo(e.target.value)}
                   placeholder="recipient@company.com"
                   autoFocus
-                  className="w-full px-3 py-2 rounded-lg border border-border bg-surface-secondary text-sm
-                    focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 transition-colors"
+                  className={inputCls}
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-text-secondary mb-1.5">Subject</label>
-                <input
-                  type="text"
-                  value={emailSubject}
-                  onChange={(e) => setEmailSubject(e.target.value)}
-                  placeholder={`Invoice ${template.fields.find((f) => f.key === 'invoiceNumber')?.value || ''}`}
-                  className="w-full px-3 py-2 rounded-lg border border-border bg-surface-secondary text-sm
-                    focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 transition-colors"
-                />
+                <label className={labelCls}>Subject</label>
+                <p className="text-sm text-text-primary">{emailSubject}</p>
               </div>
-              {!settings.email.smtpHost && (
+              {!settings.email.resendApiKey && (
                 <p className="text-xs text-warning">
-                  SMTP not configured. Will use mailto link + PDF download as fallback.
+                  Resend API key not configured. Go to Settings to add it.
                 </p>
               )}
             </div>

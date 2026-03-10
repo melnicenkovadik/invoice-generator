@@ -13,6 +13,7 @@ createRoot(document.getElementById('root')!).render(
       <Routes>
         <Route element={<Layout />}>
           <Route path="/" element={<Dashboard />} />
+          <Route path="/editor/new" element={<InvoiceEditor />} />
           <Route path="/editor/:id" element={<InvoiceEditor />} />
           <Route path="/settings" element={<SettingsPage />} />
         </Route>
