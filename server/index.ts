@@ -47,13 +47,10 @@ app.post('/api/resend/*', async (c) => {
 });
 
 // --- Static files (Vite build output) ---
-app.use('/*', serveStatic({ root: DIST_DIR }));
+app.use('*', serveStatic({ root: DIST_DIR }));
 
-// SPA fallback — serve index.html for any unmatched route
-app.get('*', (c) => {
-  const html = readFileSync(join(DIST_DIR, 'index.html'), 'utf-8');
-  return c.html(html);
-});
+// SPA fallback — serve index.html for any unmatched route (deep links)
+app.use('*', serveStatic({ root: DIST_DIR, path: 'index.html' }));
 
 serve({ fetch: app.fetch, port: PORT }, () => {
   console.log(`Invoice Generator → http://localhost:${PORT}`);
