@@ -18,7 +18,7 @@ export function Layout() {
         <NavLink to="/" className="flex items-center gap-2.5 no-underline">
           <FileText size={22} className="text-accent" />
           <span className="text-lg font-semibold tracking-tight text-text-primary">
-            Invoice Generator
+            Invoice Creator
           </span>
         </NavLink>
         <nav className="flex items-center gap-1">
